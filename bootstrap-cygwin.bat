@@ -1,53 +1,65 @@
 @echo off
+@echo.
+@echo WARNING: Do not run this on a production machine!
+@echo.
 
-set /p ARCH= What architecture (x86/x86_64)? 
-set /p SSHD_PORT= Which sshd port (e.g. 53201 or 56401)? 
-
-@echo on
-set NAME=cygwin-%SSHD_PORT%
-set SSHD_SERVICE=%NAME%-sshd
+rem The drive and directory of the file being executed.
+%~d0
+cd "%~dp0"
 
 set DRIVE=c:
-set CACHEDIR=%DRIVE%\cygwin-download
-set TARGETDIR=%DRIVE%\%NAME%
+set CACHEDIR=%DRIVE%\cygwin-cache
 
+rem Use your custom mirror here
+set MIRROR=http://ftp.gwdg.de/pub/linux/sources.redhat.com/cygwin/
+
+:SARCH
+set ARCH=""
+set /p ARCH= What architecture (x86/x86_64)? 
+if "%ARCH%" == "x86" goto SARCHOK
+if "%ARCH%" == "x86_64" goto SARCHOK
+goto SARCH
+:SARCHOK
 set SETUPEXE=setup-%ARCH%.exe
 
+set SUFFIX=""
+set /p SUFFIX= cygwin target directory suffix? 
+
+if "%SUFFIX%" equ "" (
+  set NAME=cygwin-%ARCH%
+) else (
+  set NAME=cygwin-%ARCH%-%SUFFIX%
+)
+
+set TARGETDIR=%DRIVE%\%NAME%
+if exist "%TARGETDIR%" (
+  echo "%TARGETDIR%" exists already, not going to overwrite.
+  pause
+  exit /B
+)
 set BASH=%TARGETDIR%\bin\bash
 
+"%SETUPEXE%" -q -X -O -s %MIRROR% -R "%TARGETDIR%" -l "%CACHEDIR%" -P bison,curl,flex,cygport,git,git-completion,libbz2-devel,libcrypt-devel,libcurl-devel,libsqlite3-devel,openssh,openssl-devel,perl-DBD-SQLite,pkg-config,tmux,vim,wget
 
-%SETUPEXE% -q -X -O -s http://cygwin.ternaris.com/cygwin -R %TARGETDIR% -l %CACHEDIR% -P git -P git-completion -P nix -P openssh -P wget
-copy %SETUPEXE% %TARGETDIR%\
-%BASH% -l -c "ln -s %SETUPEXE% /setup.exe"
+@echo.
+echo Please wait until the cygwin installer has finished, then press any key to continue;
+@echo.
+pause
 
+copy "%SETUPEXE%" "%TARGETDIR%"
+xcopy /s /y skel "%TARGETDIR%\etc\skel"
 
-%BASH% -l -c "wget https://0x2c.org/~cf1/rc-user-home-gitdir.tar.xz"
-%BASH% -l -c "tar xfJ rc-user-home-gitdir.tar.xz"
-%BASH% -l -c "git checkout master ."
+rem Kill Cygwin's Python, as it interferes with Nix' Python
+rem move "%TARGETDIR%\bin\libpython2.7.dll" "%TARGETDIR%\bin\libpython2.7.dll-DO-NOT-USE-ME"
 
-
-%BASH% -l -c "./bin/ssh-host-config --yes --name %SSHD_SERVICE% --cygwin ntsec --port %SSHD_PORT% --user cyg_server"
-%BASH% -l -c "sed -i /etc/sshd_config -e 's,^.*PermitUserEnvironment.*$,PermitUserEnvironment yes,'
-%BASH% -l -c "cygrunsrv --start %SSHD_SERVICE%
-
-
-> %TARGETDIR%\rebase.bat (
-@echo.%DRIVE%
-@echo.chdir %TARGETDIR%\bin
-@echo.dash -c '/bin/find /nix/store -regextype posix-egrep -regex ".*\.(dll|so)" ^>/rebase.list'
-@echo.dash -c '/bin/rebaseall -p -T /rebase.list'
-@echo.pause
+> "%TARGETDIR%\mintty.bat" (
+  @echo start "" "%%~dp0bin\mintty.exe" -
+)
+> "%TARGETDIR%\setup.bat" (
+  @echo "%%~dp0%SETUPEXE%" -q -X -O -s %MIRROR% -R "%TARGETDIR%" -l "%CACHEDIR%" %%*
 )
 
-> %TARGETDIR%\start-sshd.bat (
-@echo.%BASH% -l -c "cygrunsrv --start %SSHD_SERVICE%
-)
-
-> %TARGETDIR%\stop-sshd.bat (
-@echo.%BASH% -l -c "cygrunsrv --stop %SSHD_SERVICE%
-)
-
-@echo sshd is ready on port %SSHD_PORT%
-@echo Check your firewall settings!
-
+@echo.
+@echo Your cygwin is at "%TARGETDIR%\mintty"
+@echo.
 pause
